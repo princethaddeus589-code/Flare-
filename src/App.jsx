@@ -1,135 +1,77 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, serverTimestamp } from "firebase/firestore";
+import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
+import { api } from "./api.js";
 import Intro from "./Intro.jsx";
 import Auth from "./Auth.jsx";
-import { Btn, Icon } from "./ui.jsx";
+import { I } from "./icons.jsx";
+import { Detail, Explore, Home, Orders, Profile, Sell } from "./screens.jsx";
 
-const CATS = {
-  service: ["Design & creative", "Tech & development", "Writing & translation", "Teaching & tutoring", "Home & repairs", "Beauty & wellness", "Business & consulting", "Other"],
-  product: ["Fashion", "Electronics", "Home & living", "Food & drink", "Art & handmade", "Beauty", "Books & media", "Other"],
-};
+const NAV = [["home", I.home, "Home"], ["explore", I.grid, "Explore"], ["sell", I.plus, "Sell"], ["orders", I.bag, "Orders"], ["profile", I.user, "Profile"]];
 
 export default function App() {
   const [intro, setIntro] = useState(() => !sessionStorage.getItem("flare-intro"));
   const [user, setUser] = useState(undefined);
+  const [profile, setProfile] = useState(null);
   const [items, setItems] = useState([]);
-  const [tab, setTab] = useState("service");
-  const [q, setQ] = useState("");
+  const [favs, setFavs] = useState(new Set());
+  const [tab, setTab] = useState("home");
+  const [cat, setCat] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
-  const [postOpen, setPostOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [toast, setToast] = useState("");
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
-  useEffect(() => onSnapshot(query(collection(db, "listings"), orderBy("createdAt", "desc"), limit(80)),
+  useEffect(() => onSnapshot(query(collection(db, "listings"), orderBy("createdAt", "desc"), limit(120)),
     (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {}), []);
+  useEffect(() => {
+    if (!user) { setProfile(null); setFavs(new Set()); return; }
+    const a = onSnapshot(doc(db, "users", user.uid), (s) => setProfile(s.data() || {}), () => {});
+    const b = onSnapshot(collection(db, "users", user.uid, "favs"), (s) => setFavs(new Set(s.docs.map((d) => d.id))), () => {});
+    return () => { a(); b(); };
+  }, [user]);
 
-  const shown = useMemo(() => items.filter((i) => i.kind === tab &&
-    `${i.title} ${i.category} ${i.location} ${i.description}`.toLowerCase().includes(q.toLowerCase())), [items, tab, q]);
+  // Back from Paystack: confirm the payment with the server, then show the order.
+  useEffect(() => {
+    const ref = new URLSearchParams(location.search).get("reference");
+    if (!ref || user === undefined) return;
+    history.replaceState({}, "", "/");
+    if (!user) return setAuthOpen(true);
+    api("verify", { reference: ref })
+      .then((r) => { setToast(`Payment confirmed: ${r.title}`); setTab("orders"); })
+      .catch((e) => setToast(e.message));
+  }, [user]);
+  useEffect(() => { if (toast) { const t = setTimeout(() => setToast(""), 5000); return () => clearTimeout(t); } }, [toast]);
 
+  const needAuth = () => setAuthOpen(true);
+  const onFav = (id) => {
+    if (!user) return needAuth();
+    const r = doc(db, "users", user.uid, "favs", id);
+    favs.has(id) ? deleteDoc(r) : setDoc(r, { at: Date.now() });
+  };
+  const open = (i) => setDetail(i);
+  const go = (t) => { setTab(t); window.scrollTo(0, 0); };
   const finishIntro = () => { sessionStorage.setItem("flare-intro", "1"); setIntro(false); };
-  const startPost = () => (user ? setPostOpen(true) : setAuthOpen(true));
 
   return (<>
     {intro && <Intro onDone={finishIntro} />}
     <header className="nav">
       <a className="brand" href="/"><img src="/logo.svg" alt="" />Flare</a>
-      {user ? (
-        <div className="who"><span>{user.displayName || user.email}</span><button onClick={() => signOut(auth)}>Sign out</button></div>
-      ) : user === null ? <Btn kind="ghost" className="sm" onClick={() => setAuthOpen(true)}>Sign in</Btn> : null}
+      {user === null && <button className="signin" onClick={needAuth}>Sign in</button>}
     </header>
-
     <main>
-      <section className="hero">
-        <h1>Find the people who pay for what you do.</h1>
-        <p>Offer a service or sell a product. Buyers and clients from anywhere can find you and message you directly.</p>
-        <div className="heroBtns"><Btn icon={Icon.plus} onClick={startPost}>Post a listing</Btn></div>
-      </section>
-
-      <div className="bar">
-        <div className="seg" role="tablist">
-          {["service", "product"].map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "service" ? "Services" : "Products"}</button>
-          ))}
-        </div>
-        <label className="search">{Icon.search}<input placeholder="Search skills, products, cities" value={q} onChange={(e) => setQ(e.target.value)} /></label>
-      </div>
-
-      {shown.length === 0 ? (
-        <div className="empty"><h3>{q ? "No matches yet" : `No ${tab === "service" ? "services" : "products"} listed yet`}</h3>
-          <p>{q ? "Try a different word or city." : "Be the first. Your listing appears here the moment you post it."}</p>
-          {!q && <Btn icon={Icon.plus} onClick={startPost}>Post a listing</Btn>}</div>
-      ) : (
-        <div className="grid">{shown.map((i) => <Card key={i.id} i={i} mine={user && user.uid === i.uid} />)}</div>
-      )}
+      {tab === "home" && <Home user={user} items={items} favs={favs} onFav={onFav} onOpen={open} go={go} setCat={setCat} startPost={() => go("sell")} />}
+      {tab === "explore" && <Explore items={items} favs={favs} onFav={onFav} onOpen={open} cat={cat} setCat={setCat} />}
+      {tab === "sell" && <Sell user={user} profile={profile} openAuth={needAuth} onPosted={() => { setToast("Your listing is live."); go("profile"); }} />}
+      {tab === "orders" && <Orders user={user} openAuth={needAuth} />}
+      {tab === "profile" && <Profile user={user} profile={profile} items={items} favs={favs} onOpen={open} openAuth={needAuth} signOut={() => signOut(auth)} />}
     </main>
-
-    <footer>© {new Date().getFullYear()} Flare. Listings are posted by members; agree price and payment directly with the other person.</footer>
-    <button className="fab" aria-label="Post a listing" onClick={startPost}>{Icon.plus}</button>
+    <nav className="dock" aria-label="Main">
+      {NAV.map(([k, icon, label]) => <button key={k} className={`${tab === k ? "on" : ""} ${k === "sell" ? "sellbtn" : ""}`} aria-label={label} onClick={() => go(k)}>{icon}</button>)}
+    </nav>
+    {toast && <div className="toast" role="status">{toast}</div>}
     {authOpen && <Auth onClose={() => setAuthOpen(false)} />}
-    {postOpen && user && <Post user={user} onClose={() => setPostOpen(false)} />}
+    {detail && <Detail i={detail} user={user} onClose={() => setDetail(null)} openAuth={() => { setDetail(null); needAuth(); }} />}
   </>);
-}
-
-function Card({ i, mine }) {
-  const wa = i.whatsapp?.replace(/\D/g, "");
-  return (
-    <article className="card">
-      {i.image && <img src={i.image} alt="" loading="lazy" onError={(e) => (e.currentTarget.style.display = "none")} />}
-      <div className="body">
-        <span className="tag">{i.category}</span>
-        <h3>{i.title}</h3>
-        <p className="price">{i.price}</p>
-        <p className="desc">{i.description}</p>
-        <p className="meta">{i.owner} · {i.location}</p>
-        <div className="actions">
-          {wa && <Btn kind="wa" className="sm" icon={Icon.chat} onClick={() => window.open(`https://wa.me/${wa}?text=${encodeURIComponent(`Hi, I found "${i.title}" on Flare.`)}`, "_blank")}>WhatsApp</Btn>}
-          {i.email && <Btn kind="ghost" className="sm" icon={Icon.mail} onClick={() => (location.href = `mailto:${i.email}?subject=${encodeURIComponent(i.title)}`)}>Email</Btn>}
-          {mine && <button className="del" onClick={() => confirm("Delete this listing?") && deleteDoc(doc(db, "listings", i.id))}>Delete</button>}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function Post({ user, onClose }) {
-  const [f, setF] = useState({ kind: "service", title: "", category: CATS.service[0], price: "", location: "", description: "", whatsapp: "", image: "" });
-  const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const kind = (k) => setF({ ...f, kind: k, category: CATS[k][0] });
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!f.whatsapp.trim() && !user.email) return setErr("Add a WhatsApp number so people can reach you.");
-    setBusy(true); setErr("");
-    try {
-      await addDoc(collection(db, "listings"), {
-        ...f, title: f.title.trim(), description: f.description.trim(),
-        uid: user.uid, owner: user.displayName || "Member", email: user.email || "", createdAt: serverTimestamp(),
-      });
-      onClose();
-    } catch { setErr("Could not post. Check your connection and try again."); setBusy(false); }
-  };
-
-  return (
-    <div className="scrim" onClick={onClose}>
-      <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2>Post a listing</h2>
-        <div className="seg full">
-          {["service", "product"].map((k) => <button type="button" key={k} className={f.kind === k ? "on" : ""} onClick={() => kind(k)}>{k === "service" ? "I offer a service" : "I sell a product"}</button>)}
-        </div>
-        <input placeholder={f.kind === "service" ? "What do you do? e.g. Wedding photographer" : "Product name"} value={f.title} onChange={set("title")} maxLength={120} required />
-        <select value={f.category} onChange={set("category")}>{CATS[f.kind].map((c) => <option key={c}>{c}</option>)}</select>
-        <div className="two">
-          <input placeholder="Price e.g. $40 / hour" value={f.price} onChange={set("price")} required />
-          <input placeholder="City, Country" value={f.location} onChange={set("location")} required />
-        </div>
-        <textarea placeholder="Describe what you offer, experience, delivery or shipping." rows={4} value={f.description} onChange={set("description")} maxLength={2000} required />
-        <input placeholder="WhatsApp number with country code, e.g. 2348012345678" value={f.whatsapp} onChange={set("whatsapp")} inputMode="tel" />
-        <input placeholder="Image link (optional)" value={f.image} onChange={set("image")} type="url" />
-        {err && <p className="msg err">{err}</p>}
-        <Btn type="submit" className="block" disabled={busy}>{busy ? "Posting…" : "Publish"}</Btn>
-      </form>
-    </div>
-  );
 }
