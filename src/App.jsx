@@ -7,6 +7,7 @@ import Intro from "./Intro.jsx";
 import Auth from "./Auth.jsx";
 import { I } from "./icons.jsx";
 import { Detail, Explore, Home, Orders, Profile, Sell } from "./screens.jsx";
+import Admin from "./Admin.jsx";
 
 const NAV = [["home", I.home, "Home"], ["explore", I.grid, "Explore"], ["sell", I.plus, "Sell"], ["orders", I.bag, "Orders"], ["profile", I.user, "Profile"]];
 
@@ -21,8 +22,13 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [toast, setToast] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
+  useEffect(() => {
+  if (!user) return setIsAdmin(false);
+  api("admin", { view: "me" }).then((r) => setIsAdmin(!!r.admin)).catch(() => setIsAdmin(false));
+}, [user]);
   useEffect(() => onSnapshot(query(collection(db, "listings"), orderBy("createdAt", "desc"), limit(120)),
     (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => {}), []);
   useEffect(() => {
@@ -58,6 +64,7 @@ export default function App() {
     {intro && <Intro onDone={finishIntro} />}
     <header className="nav">
       <a className="brand" href="/"><img src="/logo.svg" alt="" />Flare</a>
+      {isAdmin && <button className="adminbtn" onClick={() => go("admin")}>Admin</button>}
       {user === null && <button className="signin" onClick={needAuth}>Sign in</button>}
     </header>
     <main>
@@ -68,6 +75,7 @@ export default function App() {
       {tab === "profile" && <Profile user={user} profile={profile} items={items} favs={favs} onOpen={open} openAuth={needAuth} signOut={() => signOut(auth)} />}
     </main>
     <nav className="dock" aria-label="Main">
+      {tab === "admin" && isAdmin && <Admin />}
       {NAV.map(([k, icon, label]) => <button key={k} className={`${tab === k ? "on" : ""} ${k === "sell" ? "sellbtn" : ""}`} aria-label={label} onClick={() => go(k)}>{icon}</button>)}
     </nav>
     {toast && <div className="toast" role="status">{toast}</div>}
