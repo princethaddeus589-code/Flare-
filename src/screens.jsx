@@ -4,6 +4,7 @@ import { db } from "./firebase.js";
 import { api, naira } from "./api.js";
 import { Btn, Icon } from "./ui.jsx";
 import { I } from "./icons.jsx";
+import { Gallery, MediaPicker, coverOf, opt } from "./media.jsx";
 
 export const CATS = {
   service: ["Design & creative", "Tech & development", "Writing & translation", "Teaching & tutoring", "Home & repairs", "Beauty & wellness", "Business & consulting", "Other"],
@@ -18,7 +19,7 @@ export function Tile({ i, fav, onFav, onOpen }) {
   return (
     <article className="lc" onClick={() => onOpen(i)}>
       <div className="pic" style={i.image ? {} : { background: `linear-gradient(135deg,hsl(${h} 85% 92%),hsl(${(h + 45) % 360} 75% 82%))`, aspectRatio: "1/1" }}>
-        {i.image ? <img src={i.image} alt="" loading="lazy" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span>{EMOJI[i.category] || "✨"}</span>}
+        {i.image ? <img src={opt(i.image)} alt="" loading="lazy" onError={(e) => (e.currentTarget.style.display = "none")} /> : <span>{EMOJI[i.category] || "✨"}</span>}
         <button className="heart" aria-label="Save" onClick={(e) => { e.stopPropagation(); onFav(i.id); }}>{I.heart(fav)}</button>
       </div>
       <h4>{i.title}</h4>
@@ -70,10 +71,10 @@ export function Sell({ user, profile, openAuth, onPosted }) {
 function Payout() {
   const [banks, setBanks] = useState([]); const [bank, setBank] = useState(""); const [acct, setAcct] = useState("");
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { api("banks").then(setBanks).catch(() => setErr("Could not load banks. Refresh and try again.")); }, []);
+  useEffect(() => { api("banks").then(setBanks).catch((x) => setErr("Could not load banks: " + x.message)); }, []);
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr("");
-    try { await api("create-subaccount", { bankCode: bank, accountNumber: acct }); } // profile updates live via Firestore
+    try { await api("create-subaccount", { bankCode: bank, accountNumber: acct }); }
     catch (x) { setErr(x.message); setBusy(false); }
   };
   return (
@@ -89,19 +90,22 @@ function Payout() {
 }
 
 function PostForm({ user, onPosted }) {
-  const [f, setF] = useState({ kind: "service", title: "", category: CATS.service[0], priceNgn: "", unit: "per project", location: "", description: "", whatsapp: "", image: "" });
+  const [f, setF] = useState({ kind: "service", title: "", category: CATS.service[0], priceNgn: "", unit: "per project", location: "", description: "", whatsapp: "" });
   const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  const [media, setMedia] = useState([]); const [up, setUp] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const kind = (k) => setF({ ...f, kind: k, category: CATS[k][0], unit: k === "service" ? "per project" : "" });
   const submit = async (e) => {
     e.preventDefault();
     const price = parseInt(f.priceNgn, 10);
     if (!(price >= 100)) return setErr("Enter a price of ₦100 or more.");
+    if (f.kind === "product" && media.length === 0) return setErr("Add at least one photo or video of your product.");
+    if (up) return setErr("Wait for the upload to finish.");
     setBusy(true); setErr("");
     try {
       await addDoc(collection(db, "listings"), {
         kind: f.kind, title: f.title.trim(), category: f.category, priceNgn: price, unit: f.unit, location: f.location.trim(),
-        description: f.description.trim(), whatsapp: f.whatsapp.trim(), image: f.image.trim(),
+        description: f.description.trim(), whatsapp: f.whatsapp.trim(), media, image: coverOf(media),
         uid: user.uid, owner: user.displayName || "Member", email: user.email || "", createdAt: serverTimestamp(),
       });
       onPosted();
@@ -118,9 +122,9 @@ function PostForm({ user, onPosted }) {
       {f.kind === "service" && <input placeholder="City, Country" value={f.location} onChange={set("location")} required />}
       <textarea rows={4} placeholder="Describe what you offer, experience, delivery or shipping." value={f.description} onChange={set("description")} maxLength={2000} required />
       <input inputMode="tel" placeholder="WhatsApp number with country code (optional)" value={f.whatsapp} onChange={set("whatsapp")} />
-      <input type="url" placeholder="Image link (optional)" value={f.image} onChange={set("image")} />
+      <MediaPicker media={media} setMedia={setMedia} setBusy={setUp} required={f.kind === "product"} />
       {err && <p className="msg err">{err}</p>}
-      <Btn type="submit" className="block" disabled={busy}>{busy ? "Posting…" : "Publish"}</Btn>
+      <Btn type="submit" className="block" disabled={busy || up}>{busy ? "Posting…" : "Publish"}</Btn>
     </form>
   );
 }
@@ -173,7 +177,7 @@ export function Detail({ i, user, onClose, openAuth }) {
   return (
     <div className="scrim" onClick={onClose}>
       <div className="sheet detail" onClick={(e) => e.stopPropagation()}>
-        {i.image && <img src={i.image} alt="" onError={(e) => (e.currentTarget.style.display = "none")} />}
+        <Gallery i={i} />
         <span className="tag">{i.category}</span>
         <h2 style={{ textAlign: "left" }}>{i.title}</h2>
         <p className="price">{priceText(i)}</p>
