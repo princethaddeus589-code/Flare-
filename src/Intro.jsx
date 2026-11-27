@@ -36,7 +36,7 @@ useEffect(() => { document.fonts?.ready.then(() => setTick((t) => t + 1)); }, []
 
       <div className="tiles" aria-hidden="true">
         {TILES.map(([a, b, x, y, r, c], k) => (
-          <div key={a} className="tile" style={{ left: x + "%", top: y + "%", "--r": r + "deg", background: c, animationDelay: k * 0.18 + "s" }}>
+          <div key={a} className="tile" style={{ left: `min(${x}%, calc(100% - 150px))`, top: y + "%", "--r": r + "deg", background: c, animationDelay: k * 0.18 + "s" }}>
             <b>{a}</b><span>{b}</span>
           </div>
         ))}
