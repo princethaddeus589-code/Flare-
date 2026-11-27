@@ -15,6 +15,8 @@ export default function Intro({ onDone }) {
   const [i, setI] = useState(0);
   const [off, setOff] = useState(0);
   const refs = useRef([]);
+  const [tick, setTick] = useState(0);
+useEffect(() => { document.fonts?.ready.then(() => setTick((t) => t + 1)); }, []);
 
   useEffect(() => { const t = setTimeout(() => setStage(1), 3000); return () => clearTimeout(t); }, []);
   useEffect(() => {
@@ -26,7 +28,7 @@ export default function Intro({ onDone }) {
   useLayoutEffect(() => {
     const el = refs.current[i];
     if (el) setOff(-(el.offsetLeft + el.offsetWidth / 2));
-  }, [i, stage]);
+  }, [i, stage, tick]);
 
   return (
     <div className={`intro s${stage}`} role="dialog" aria-label="Welcome to Flare">
